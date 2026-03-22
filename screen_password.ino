@@ -33,7 +33,8 @@ const uint8_t KB_Y_START   = 16;
 
 const char* kbGetRow(int row) {
   switch (kbLayout) {
-    case KB_LAY_UPPER:   return KB_UPPER[row];
+    case KB_LAY_UPPER:
+    case KB_LAY_CAPS:  return KB_UPPER[row];
     case KB_LAY_SPECIAL: return KB_SPECIAL[row];
     default:             return KB_LOWER[row];
   }
@@ -47,7 +48,10 @@ uint8_t kbColX(int c) {
 
 const char* kbSpecialLabel(char ch) {
   switch ((uint8_t)ch) {
-    case 0x01: return (kbLayout == KB_LAY_UPPER) ? "v^" : "^^";
+    case 0x01:
+      if (kbLayout == KB_LAY_CAPS)    return "[^]";  // caps lock actif
+      if (kbLayout == KB_LAY_UPPER)   return "v^";   // one-shot upper
+      return "^^";                                    // lower
     case 0x02: return (kbLayout == KB_LAY_SPECIAL) ? "az" : "#1";
     case 0x08: return "<X";
     case 0x0D: return "OK";
@@ -124,9 +128,17 @@ void kbPressKey() {
 
   switch ((uint8_t)ch) {
 
-    case 0x01:  // Shift / Caps (one-shot : repasse en lower après une majuscule)
-      kbLayout = (kbLayout == KB_LAY_LOWER) ? KB_LAY_UPPER :
-                 (kbLayout == KB_LAY_UPPER) ? KB_LAY_LOWER : KB_LAY_SPECIAL;
+    case 0x01:  // Shift
+      if (kbLayout == KB_LAY_LOWER) {
+        // Lower → one-shot upper
+        kbLayout = KB_LAY_UPPER;
+      } else if (kbLayout == KB_LAY_UPPER) {
+        // One-shot upper (pas encore tapé de lettre) → caps lock
+        kbLayout = KB_LAY_CAPS;
+      } else if (kbLayout == KB_LAY_CAPS) {
+        // Caps lock → retour lower
+        kbLayout = KB_LAY_LOWER;
+      }
       break;
 
     case 0x02:  // Basculer spéciaux ↔ alpha
@@ -175,7 +187,9 @@ void kbPressKey() {
       if (pwdLen < 63) {
         pwdBuffer[pwdLen++] = ch;
         pwdBuffer[pwdLen]   = '\0';
+        // One-shot : repasse en lower uniquement si on était en upper simple
         if (kbLayout == KB_LAY_UPPER) kbLayout = KB_LAY_LOWER;
+        // En CAPS : on reste en majuscule
       }
       break;
   }

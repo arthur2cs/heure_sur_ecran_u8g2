@@ -33,7 +33,7 @@ int wifiNetworkCount = 0;
 int wifiMenuIndex    = 0;   // 0 = flèche retour, 1..n = réseaux
 
 // ── Clavier (layouts définis dans screen_password.ino) ───────────────────────
-enum KbLayout { KB_LAY_LOWER, KB_LAY_UPPER, KB_LAY_SPECIAL };
+enum KbLayout { KB_LAY_LOWER, KB_LAY_UPPER, KB_LAY_CAPS, KB_LAY_SPECIAL };
 KbLayout kbLayout      = KB_LAY_LOWER;
 int      kbRow         = -1;
 int      kbCol         = 0;
@@ -65,6 +65,13 @@ int  menuBtnState    = HIGH;
 unsigned long lastDebounceNext = 0;
 unsigned long lastDebounceMenu = 0;
 const unsigned long DEBOUNCE_DELAY = 50;
+
+// Appui long bouton Next (défilement auto clavier)
+unsigned long nextPressStart    = 0;
+bool          nextIsHeld        = false;
+unsigned long lastAutoScroll    = 0;
+const unsigned long LONG_PRESS_DELAY  = 1000;
+const unsigned long AUTO_SCROLL_RATE  = 100;
 
 // ── Tableau bitmaps chiffres ──────────────────────────────────────────────────
 const uint8_t* digitBitmaps[] = {

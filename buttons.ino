@@ -15,9 +15,47 @@ bool readButton(int pin, int& lastRaw, int& stableState, unsigned long& lastDebo
   return false;
 }
 
+// Avance d'une position dans la grille du clavier
+void kbAdvanceCursor() {
+  if (kbRow == -1) {
+    kbRow = 0; kbCol = 0;
+  } else {
+    kbCol++;
+    if (kbCol >= 10) {
+      kbCol = 0;
+      kbRow++;
+      if (kbRow >= 4) kbRow = -1;
+    }
+  }
+}
+
 void handleButtons() {
   bool pressedNext = readButton(btnNextPin, lastNextState, nextState,    lastDebounceNext);
   bool pressedMenu = readButton(btnMenuPin, lastMenuState, menuBtnState, lastDebounceMenu);
+
+  // Suivi appui long bouton Next (uniquement dans l'écran clavier)
+  int rawNext = digitalRead(btnNextPin);
+  if (currentScreen == SCREEN_PASSWORD) {
+    if (rawNext == LOW) {
+      if (!nextIsHeld) {
+        // Front descendant déjà géré par readButton ; on démarre le chrono
+        nextIsHeld     = true;
+        nextPressStart = millis();
+        lastAutoScroll = millis();
+      } else if (millis() - nextPressStart >= LONG_PRESS_DELAY) {
+        // Appui long actif : défilement auto
+        if (millis() - lastAutoScroll >= AUTO_SCROLL_RATE) {
+          lastAutoScroll = millis();
+          kbAdvanceCursor();
+          drawPasswordScreen();
+        }
+      }
+    } else {
+      nextIsHeld = false;
+    }
+  } else {
+    nextIsHeld = false;
+  }
 
   switch (currentScreen) {
 
@@ -70,7 +108,7 @@ void handleButtons() {
           pwdSelectedNet  = wifiMenuIndex - 1;
           pwdLen          = 0;
           pwdBuffer[0]    = '\0';
-          kbRow           = -1;   // démarre sur le bouton retour "<"
+          kbRow           = -1;
           kbCol           = 0;
           kbLayout        = KB_LAY_LOWER;
           currentScreen   = SCREEN_PASSWORD;
@@ -82,16 +120,8 @@ void handleButtons() {
     // ── Saisie du mot de passe ────────────────────────────────────────────────
     case SCREEN_PASSWORD:
       if (pressedNext) {
-        if (kbRow == -1) {
-          kbRow = 0; kbCol = 0;
-        } else {
-          kbCol++;
-          if (kbCol >= 10) {
-            kbCol = 0;
-            kbRow++;
-            if (kbRow >= 4) kbRow = -1;  // retour au bouton "<"
-          }
-        }
+        // Simple clic : avance d'une touche (le défilement auto est géré au-dessus)
+        kbAdvanceCursor();
         drawPasswordScreen();
       }
       if (pressedMenu) {
