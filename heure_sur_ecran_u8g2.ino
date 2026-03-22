@@ -8,7 +8,7 @@
 U8G2_SSD1306_128X64_NONAME_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 22, /* data=*/ 21, /* cs=*/ 5, /* dc=*/ 4, /* reset=*/ 2);
 
 // Configuration WiFi et NTP
-const char* ssid = "Liveox-1F20";
+const char* ssid = "Livebox-1F20";
 const char* password = "uuaCwurTqKHF3xtwt7";
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3600;
@@ -57,12 +57,68 @@ const uint8_t* digitBitmaps[] = {
 };
 
 
-void NTPstart() {
-    // Connect to Wi-Fi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+const char* wifiStatusStr(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS:     return "Idle";
+    case WL_NO_SSID_AVAIL:   return "Reseau introuvable";
+    case WL_SCAN_COMPLETED:  return "Scan OK";
+    case WL_CONNECTED:       return "Connecte";
+    case WL_CONNECT_FAILED:  return "Mauvais mot de passe";
+    case WL_CONNECTION_LOST: return "Connexion perdue";
+    case WL_DISCONNECTED:    return "Deconnecte";
+    default:                 return "Inconnu";
+  }
+}
+
+void wifiScan() {
+  u8g2.clearBuffer();
+  drawMultiLineText("Scan WiFi...", 0, 0);
+  u8g2.sendBuffer();
+
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
     u8g2.clearBuffer();
-    drawMultiLineText("Connexion au Wifi de la maison....", 0, 0);
+    drawMultiLineText("Aucun reseau trouve", 0, 0);
+    u8g2.sendBuffer();
+    delay(5000);
+    return;
+  }
+
+  // Affiche les réseaux trouvés un par un
+  for (int i = 0; i < n; i++) {
+    u8g2.clearBuffer();
+    char msg[64];
+    snprintf(msg, sizeof(msg), "%d: %s (%d dBm)", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+    drawMultiLineText(msg, 0, 0);
+    u8g2.sendBuffer();
+    delay(2000);
+  }
+}
+
+void NTPstart() {
+  // Scan pour vérifier que le réseau est visible
+  WiFi.mode(WIFI_STA);
+  wifiScan();
+
+  // Reset avant de (re)connecter
+  WiFi.disconnect(true);
+  delay(500);
+  WiFi.begin(ssid, password);
+
+  unsigned long wifiTimeout = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    wl_status_t status = WiFi.status();
+    if (millis() - wifiTimeout > 15000) {  // Timeout après 15 secondes
+      u8g2.clearBuffer();
+      drawMultiLineText(wifiStatusStr(status), 0, 0);
+      u8g2.sendBuffer();
+      delay(3000);
+      return;
+    }
+    u8g2.clearBuffer();
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Wifi: %s", wifiStatusStr(status));
+    drawMultiLineText(msg, 0, 0);
     u8g2.sendBuffer();
     delay(500);
   }
