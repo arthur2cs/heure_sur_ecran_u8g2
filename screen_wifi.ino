@@ -30,6 +30,9 @@ void NTPstart() {
       drawMultiLineText("Echec connexion WiFi", 0, 0);
       u8g2.sendBuffer();
       delay(2000);
+      // configTzTime même sans WiFi : évite que getLocalTime() bloque dans loop()
+      // UTC sans offset → heure par défaut 00:00
+      configTzTime("UTC0", ntpServer);
       return;
     }
     u8g2.clearBuffer();
@@ -38,7 +41,7 @@ void NTPstart() {
     delay(500);
   }
 
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", ntpServer);
   u8g2.clearBuffer();
   drawMultiLineText("WiFi connecte !", 0, 0);
   u8g2.sendBuffer();

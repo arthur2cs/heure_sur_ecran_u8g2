@@ -166,7 +166,15 @@ void kbPressKey() {
 
         u8g2.clearBuffer();
         if (WiFi.status() == WL_CONNECTED) {
-          configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+          // Sauvegarde le ssid et le mot de passe en flash pour le prochain démarrage
+          strncpy(ssid,     WiFi.SSID(pwdSelectedNet).c_str(), sizeof(ssid) - 1);
+          strncpy(password, pwdBuffer,                          sizeof(password) - 1);
+          prefs.begin("wifi", false);  // lecture/écriture
+          prefs.putString("ssid",     ssid);
+          prefs.putString("password", password);
+          prefs.end();
+
+          configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", ntpServer);
           drawMultiLineText("WiFi connecte !", 0, 0);
           u8g2.sendBuffer();
           delay(1500);

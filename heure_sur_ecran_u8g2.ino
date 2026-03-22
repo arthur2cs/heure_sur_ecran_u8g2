@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include "time.h"
 #include "blink.h"
 #include "digits.h"
@@ -9,11 +10,12 @@
 U8G2_SSD1306_128X64_NONAME_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 22, /* data=*/ 21, /* cs=*/ 5, /* dc=*/ 4, /* reset=*/ 2);
 
 // ── Configuration WiFi / NTP ──────────────────────────────────────────────────
-const char* ssid              = "Livebox-1F20";
-const char* password          = "uuaCwurTqKHF3xtwt7";
-const char* ntpServer         = "pool.ntp.org";
-const long  gmtOffset_sec     = 3600;
-const int   daylightOffset_sec = 3600;
+// Valeurs par défaut (écrasées au boot par ce qui est sauvegardé en flash)
+char        ssid[64]           = "Livebox-1F20";
+char        password[64]       = "uuaCwurTqKHF3xtwt7";
+const char* ntpServer = "pool.ntp.org";
+
+Preferences prefs;  // accès à la mémoire flash non-volatile
 
 // ── Pins boutons ──────────────────────────────────────────────────────────────
 const int btnNextPin = 15;   // Bouton "next"
@@ -86,6 +88,14 @@ void setup() {
   u8g2.setPowerSave(0);
   pinMode(btnNextPin, INPUT_PULLUP);
   pinMode(btnMenuPin, INPUT_PULLUP);
+
+  // Charge le dernier ssid/password sauvegardé en flash
+  // (seulement si une valeur existe, sinon garde les valeurs par défaut)
+  prefs.begin("wifi", true);
+  if (prefs.isKey("ssid"))     prefs.getString("ssid",     ssid,     sizeof(ssid));
+  if (prefs.isKey("password")) prefs.getString("password", password, sizeof(password));
+  prefs.end();
+
   NTPstart();
 }
 

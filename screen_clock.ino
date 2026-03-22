@@ -2,11 +2,8 @@
 // Affichage de l'heure et de l'animation arcade
 
 void LocalTime() {
-  if (!getLocalTime(&timeinfo)) {
-    u8g2.clearBuffer();
-    drawMultiLineText("Echec d'aquisition de l'heure", 0, 0);
-    u8g2.sendBuffer();
-  }
+  // timeout à 0 : ne bloque jamais, retourne l'heure actuelle ou 00:00 si pas de NTP
+  getLocalTime(&timeinfo, 0);
 }
 
 const uint8_t* getDigitBitmap(int digit) {
