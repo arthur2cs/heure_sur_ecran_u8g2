@@ -82,6 +82,18 @@ void handleButtons() {
         if (menuIndex == 0) {
           currentScreen = SCREEN_CLOCK;
         } else if (menuIndex == 1) {
+          syncTime();  // se connecte, met l'heure à jour, bascule sur SCREEN_CLOCK
+        } else if (menuIndex == 2) {
+          // Heure manuelle : initialise les chiffres à l'heure courante
+          getLocalTime(&timeinfo, 0);
+          tsH1 = timeinfo.tm_hour / 10;
+          tsH2 = timeinfo.tm_hour % 10;
+          tsM1 = timeinfo.tm_min  / 10;
+          tsM2 = timeinfo.tm_min  % 10;
+          tsDigit = 4;  // démarre sur la flèche retour
+          currentScreen = SCREEN_TIMESET;
+          drawTimeSetScreen();
+        } else if (menuIndex == 3) {
           u8g2.clearBuffer();
           drawMultiLineText("Scan WiFi...", 0, 0);
           u8g2.sendBuffer();
@@ -89,6 +101,11 @@ void handleButtons() {
           wifiMenuIndex    = 0;
           currentScreen    = SCREEN_WIFI;
           drawWifiMenu();
+        } else if (menuIndex == 4) {
+          asRow = 0;
+          asCol = 0;
+          currentScreen = SCREEN_ANIMSET;
+          drawAnimSetScreen();
         }
       }
       break;
@@ -130,6 +147,74 @@ void handleButtons() {
           drawWifiMenu();
         } else {
           kbPressKey();
+        }
+      }
+      break;
+
+    // ── Réglage heure manuelle ────────────────────────────────────────────────
+    case SCREEN_TIMESET:
+      if (pressedNext) {
+        // Ordre : retour(4) → H1(0) → H2(1) → M1(2) → M2(3) → OK(5) → retour(4)...
+        const int tsOrder[] = {4, 0, 1, 2, 3, 5};
+        const int tsOrderLen = 6;
+        int cur = 0;
+        for (int i = 0; i < tsOrderLen; i++) { if (tsOrder[i] == tsDigit) { cur = i; break; } }
+        tsDigit = tsOrder[(cur + 1) % tsOrderLen];
+        drawTimeSetScreen();
+      }
+      if (pressedMenu) {
+        if (tsDigit == 4) {
+          currentScreen = SCREEN_MENU;
+          drawMainMenu();
+        } else if (tsDigit == 5) {
+          tsApply();
+        } else {
+          tsIncrDigit();
+          drawTimeSetScreen();
+        }
+      }
+      break;
+
+    // ── Réglage animation ──────────────────────────────────────────────────
+    case SCREEN_ANIMSET:
+      if (pressedNext) {
+        // Ordre : retour(0) → moy<(1,0) → moy>(1,1) → écart<(2,0) → écart>(2,1) → OK(3) → retour(0)
+        if (asRow == 0) {
+          asRow = 1; asCol = 0;
+        } else if (asRow == 1 && asCol == 0) {
+          asCol = 1;
+        } else if (asRow == 1 && asCol == 1) {
+          asRow = 2; asCol = 0;
+        } else if (asRow == 2 && asCol == 0) {
+          asCol = 1;
+        } else if (asRow == 2 && asCol == 1) {
+          asRow = 3; asCol = 0;
+        } else { // asRow == 3 (OK)
+          asRow = 0; asCol = 0;
+        }
+        drawAnimSetScreen();
+      }
+      if (pressedMenu) {
+        if (asRow == 0) {
+          // Retour au menu sans sauvegarder
+          currentScreen = SCREEN_MENU;
+          drawMainMenu();
+        } else if (asRow == 3) {
+          // OK : sauvegarde et bascule sur l'horloge
+          asSave();
+          currentScreen = SCREEN_CLOCK;
+        } else {
+          // Incrémente ou décrémente la valeur sélectionnée
+          unsigned long* val = (asRow == 1) ? &delayMean : &delayStdDev;
+          const unsigned long STEP = 1000;
+          const unsigned long VMIN = 1000;
+          const unsigned long VMAX = 1000000;
+          if (asCol == 0) {
+            if (*val > VMIN) *val -= STEP; else *val = VMIN;
+          } else {
+            if (*val < VMAX) *val += STEP; else *val = VMAX;
+          }
+          drawAnimSetScreen();
         }
       }
       break;

@@ -157,33 +157,17 @@ void kbPressKey() {
         drawMultiLineText(msg, 0, 0);
         u8g2.sendBuffer();
 
-        WiFi.disconnect(true);
-        delay(300);
-        WiFi.begin(WiFi.SSID(pwdSelectedNet).c_str(), pwdBuffer);
+        // Sauvegarde le ssid et le mot de passe en flash pour le prochain démarrage
+        strncpy(ssid,     WiFi.SSID(pwdSelectedNet).c_str(), sizeof(ssid) - 1);
+        ssid[sizeof(ssid) - 1] = '\0';
+        strncpy(password, pwdBuffer, sizeof(password) - 1);
+        password[sizeof(password) - 1] = '\0';
+        prefs.begin("wifi", false);
+        prefs.putString("ssid",     ssid);
+        prefs.putString("password", password);
+        prefs.end();
 
-        unsigned long t = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - t < 10000) delay(300);
-
-        u8g2.clearBuffer();
-        if (WiFi.status() == WL_CONNECTED) {
-          // Sauvegarde le ssid et le mot de passe en flash pour le prochain démarrage
-          strncpy(ssid,     WiFi.SSID(pwdSelectedNet).c_str(), sizeof(ssid) - 1);
-          strncpy(password, pwdBuffer,                          sizeof(password) - 1);
-          prefs.begin("wifi", false);  // lecture/écriture
-          prefs.putString("ssid",     ssid);
-          prefs.putString("password", password);
-          prefs.end();
-
-          configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", ntpServer);
-          drawMultiLineText("WiFi connecte !", 0, 0);
-          u8g2.sendBuffer();
-          delay(1500);
-        } else {
-          drawMultiLineText("Echec connexion", 0, 0);
-          u8g2.sendBuffer();
-          delay(2000);
-        }
-        currentScreen = SCREEN_CLOCK;
+        syncTime();  // connexion + configTzTime + bascule sur SCREEN_CLOCK
         return;
       }
 

@@ -22,13 +22,14 @@ const int btnNextPin = 15;   // Bouton "next"
 const int btnMenuPin = 13;   // Bouton "menu / entrer"
 
 // ── États de l'application ────────────────────────────────────────────────────
-enum AppScreen { SCREEN_CLOCK, SCREEN_MENU, SCREEN_WIFI, SCREEN_PASSWORD };
+enum AppScreen { SCREEN_CLOCK, SCREEN_MENU, SCREEN_WIFI, SCREEN_PASSWORD, SCREEN_TIMESET, SCREEN_ANIMSET };
 AppScreen currentScreen = SCREEN_CLOCK;
 
 // ── Menu principal ────────────────────────────────────────────────────────────
-const int   MENU_ITEMS = 2;
-const char* menuLabels[MENU_ITEMS] = { "Horloge / Anim", "Reseaux WiFi" };
-int menuIndex = 0;
+const int   MENU_ITEMS = 5;
+const char* menuLabels[MENU_ITEMS] = { "Horloge / Anim", "Heure automatique", "Heure manuelle", "Reseaux WiFi", "Anim settings" };
+int menuIndex    = 0;
+int menuScrollTop = 0;  // index du premier item visible (scroll)
 
 // ── Menu WiFi ─────────────────────────────────────────────────────────────────
 int wifiNetworkCount = 0;
@@ -42,6 +43,20 @@ int      kbCol         = 0;
 char     pwdBuffer[64] = "";
 int      pwdLen        = 0;
 int      pwdSelectedNet = -1;
+
+// ── Réglage heure manuelle ────────────────────────────────────────────────────
+// tsDigit : 0=H1 1=H2 2=M1 3=M2  (4=bouton retour, 5=bouton valider)
+int tsDigit   = 0;   // chiffre/bouton sélectionné
+int tsH1      = 0;   // dizaine des heures
+int tsH2      = 0;   // unité des heures
+int tsM1      = 0;   // dizaine des minutes
+int tsM2      = 0;   // unité des minutes
+
+// ── Réglage animation ────────────────────────────────────────────────────────
+// asRow : 0=retour  1=moyenne  2=écart-type
+// asCol : 0=< (decrease)  1=> (increase)
+int asRow = 0;
+int asCol = 0;
 
 // ── Horloge ───────────────────────────────────────────────────────────────────
 struct tm    timeinfo;
@@ -96,7 +111,12 @@ void setup() {
   if (prefs.isKey("password")) prefs.getString("password", password, sizeof(password));
   prefs.end();
 
-  NTPstart();
+  prefs.begin("anim", true);
+  if (prefs.isKey("mean"))   delayMean   = prefs.getULong("mean",   6000);
+  if (prefs.isKey("stddev")) delayStdDev = prefs.getULong("stddev", 1000);
+  prefs.end();
+
+  syncTime();
 }
 
 void loop() {
