@@ -14,9 +14,25 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
 
-// Variables d'état
+// Pins boutons
+const int btnNextPin = 15;   // Bouton "next" (existant)
+const int btnMenuPin = 13;   // Bouton "menu / entrer" (nouveau)
+
+// États de l'application
+enum AppScreen { SCREEN_CLOCK, SCREEN_MENU, SCREEN_WIFI };
+AppScreen currentScreen = SCREEN_CLOCK;
+
+// Menu principal
+const int MENU_ITEMS = 2;
+const char* menuLabels[MENU_ITEMS] = { "Horloge / Anim", "Reseaux WiFi" };
+int menuIndex = 0;  // item surligné
+
+// Menu WiFi
+int wifiNetworkCount = 0;
+int wifiMenuIndex = 0;  // 0 = flèche retour, 1..n = réseaux
+
+// Variables d'état horloge
 struct tm timeinfo;
-const int buttonPin = 15;
 bool AnimationOn = false;
 
 // Animation
@@ -29,10 +45,13 @@ bool isInPause = false;
 unsigned long delayMean = 6000;
 unsigned long delayStdDev = 1000;
 
-// Gestion du bouton (anti-rebond)
-int lastButtonState = HIGH;
-int buttonState = HIGH;
-unsigned long lastDebounceTime = 0;
+// Gestion des boutons (anti-rebond)
+int lastNextState = HIGH;
+int nextState    = HIGH;
+int lastMenuState = HIGH;
+int menuBtnState  = HIGH;
+unsigned long lastDebounceNext = 0;
+unsigned long lastDebounceMenu = 0;
 const unsigned long DEBOUNCE_DELAY = 50;
 
 // Gestion de l'horloge
@@ -70,61 +89,36 @@ const char* wifiStatusStr(wl_status_t status) {
   }
 }
 
-void wifiScan() {
-  u8g2.clearBuffer();
-  drawMultiLineText("Scan WiFi...", 0, 0);
-  u8g2.sendBuffer();
-
-  int n = WiFi.scanNetworks();
-  if (n == 0) {
-    u8g2.clearBuffer();
-    drawMultiLineText("Aucun reseau trouve", 0, 0);
-    u8g2.sendBuffer();
-    delay(5000);
-    return;
-  }
-
-  // Affiche les réseaux trouvés un par un
-  for (int i = 0; i < n; i++) {
-    u8g2.clearBuffer();
-    char msg[64];
-    snprintf(msg, sizeof(msg), "%d: %s (%d dBm)", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
-    drawMultiLineText(msg, 0, 0);
-    u8g2.sendBuffer();
-    delay(2000);
-  }
-}
-
 void NTPstart() {
-  // Scan pour vérifier que le réseau est visible
   WiFi.mode(WIFI_STA);
-  wifiScan();
-
-  // Reset avant de (re)connecter
   WiFi.disconnect(true);
   delay(500);
   WiFi.begin(ssid, password);
 
+  char msg[64];
+  snprintf(msg, sizeof(msg), "Connexion a \"%s\"...", ssid);
+
   unsigned long wifiTimeout = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    wl_status_t status = WiFi.status();
-    if (millis() - wifiTimeout > 15000) {  // Timeout après 15 secondes
+    if (millis() - wifiTimeout > 10000) {
       u8g2.clearBuffer();
-      drawMultiLineText(wifiStatusStr(status), 0, 0);
+      drawMultiLineText("Echec connexion WiFi", 0, 0);
       u8g2.sendBuffer();
-      delay(3000);
-      return;
+      delay(2000);
+      return;  // bascule sur l'horloge (00:00)
     }
     u8g2.clearBuffer();
-    char msg[64];
-    snprintf(msg, sizeof(msg), "Wifi: %s", wifiStatusStr(status));
     drawMultiLineText(msg, 0, 0);
     u8g2.sendBuffer();
     delay(500);
   }
 
-  // Initialize and synchronize the time
+  // Succès
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  u8g2.clearBuffer();
+  drawMultiLineText("WiFi connecte !", 0, 0);
+  u8g2.sendBuffer();
+  delay(1500);  // bref message de succès puis horloge
 }
 
 
@@ -136,34 +130,153 @@ void LocalTime() {
   }
 }
 
-// Fonction de gestion du bouton avec anti-rebond
-void handleButton() {
-  int reading = digitalRead(buttonPin);
-  
-  // Si l'état du bouton a changé, réinitialiser le timer de debounce
-  if (reading != lastButtonState) {
-    lastDebounceTime = millis();
-  }
-  
-  // Si le temps de debounce est écoulé
-  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-    // Si l'état du bouton a vraiment changé
-    if (reading != buttonState) {
-      buttonState = reading;
-      
-      // Si le bouton est pressé (LOW car INPUT_PULLUP)
-      if (buttonState == LOW) {
-        AnimationOn = !AnimationOn;
-        // Réinitialiser les compteurs lors du changement de mode
-        if (AnimationOn) {
-          animationCounter = 0;
-          isInPause = false;
-        }
-      }
+// ── Helpers boutons ───────────────────────────────────────────────────────────
+
+// Retourne true si le bouton vient d'être pressé (front descendant, debounced)
+bool readButton(int pin, int& lastRaw, int& stableState, unsigned long& lastDebounce) {
+  int reading = digitalRead(pin);
+  if (reading != lastRaw) lastDebounce = millis();
+  lastRaw = reading;
+  if ((millis() - lastDebounce) > DEBOUNCE_DELAY) {
+    if (reading != stableState) {
+      stableState = reading;
+      if (stableState == LOW) return true;  // front descendant = appui
     }
   }
-  
-  lastButtonState = reading;
+  return false;
+}
+
+// ── Dessin menu principal ─────────────────────────────────────────────────────
+
+void drawMainMenu() {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_ncenB08_tr);
+  uint8_t lineH = 13;
+  uint8_t yStart = 10;
+
+  // Titre
+  u8g2.drawStr(0, yStart, "-- MENU --");
+
+  for (int i = 0; i < MENU_ITEMS; i++) {
+    uint8_t y = yStart + (i + 1) * lineH;
+    if (i == menuIndex) {
+      // Surbrillance : rectangle blanc, texte noir
+      u8g2.setDrawColor(1);
+      u8g2.drawBox(0, y - 9, 128, lineH);
+      u8g2.setDrawColor(0);
+      u8g2.drawStr(2, y, menuLabels[i]);
+      u8g2.setDrawColor(1);
+    } else {
+      u8g2.drawStr(2, y, menuLabels[i]);
+    }
+  }
+  u8g2.sendBuffer();
+}
+
+// ── Dessin menu WiFi ──────────────────────────────────────────────────────────
+
+void drawWifiMenu() {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_ncenB08_tr);
+  uint8_t lineH = 11;
+
+  // Flèche retour (index 0) — toujours visible en haut à gauche
+  if (wifiMenuIndex == 0) {
+    u8g2.setDrawColor(1);
+    u8g2.drawBox(0, 0, 20, lineH);
+    u8g2.setDrawColor(0);
+    u8g2.drawStr(2, 9, "<");
+    u8g2.setDrawColor(1);
+  } else {
+    u8g2.drawStr(2, 9, "<");
+  }
+
+  // Liste des réseaux (index 1..wifiNetworkCount)
+  // On affiche jusqu'à 4 réseaux, avec défilement
+  int visibleStart = max(0, wifiMenuIndex - 4);  // décalage si beaucoup de réseaux
+  for (int i = 0; i < min(wifiNetworkCount, 4); i++) {
+    int netIdx = visibleStart + i;
+    if (netIdx >= wifiNetworkCount) break;
+
+    uint8_t y = lineH + (i + 1) * lineH;
+    int listIndex = netIdx + 1;  // index dans le menu (0 = retour, 1+ = réseaux)
+
+    char label[32];
+    snprintf(label, sizeof(label), "%s (%d)", WiFi.SSID(netIdx).c_str(), WiFi.RSSI(netIdx));
+
+    if (wifiMenuIndex == listIndex) {
+      u8g2.setDrawColor(1);
+      u8g2.drawBox(0, y - 9, 128, lineH);
+      u8g2.setDrawColor(0);
+      u8g2.drawStr(2, y, label);
+      u8g2.setDrawColor(1);
+    } else {
+      u8g2.drawStr(2, y, label);
+    }
+  }
+  u8g2.sendBuffer();
+}
+
+// ── Gestion des boutons selon l'écran actif ───────────────────────────────────
+
+void handleButtons() {
+  bool pressedNext = readButton(btnNextPin, lastNextState, nextState, lastDebounceNext);
+  bool pressedMenu = readButton(btnMenuPin, lastMenuState, menuBtnState, lastDebounceMenu);
+
+  switch (currentScreen) {
+
+    case SCREEN_CLOCK:
+      if (pressedMenu) {
+        // Ouvrir le menu principal
+        menuIndex = 0;
+        currentScreen = SCREEN_MENU;
+        drawMainMenu();
+      }
+      if (pressedNext) {
+        // Comportement existant : toggle animation
+        AnimationOn = !AnimationOn;
+        if (AnimationOn) { animationCounter = 0; isInPause = false; }
+      }
+      break;
+
+    case SCREEN_MENU:
+      if (pressedNext) {
+        menuIndex = (menuIndex + 1) % MENU_ITEMS;
+        drawMainMenu();
+      }
+      if (pressedMenu) {
+        if (menuIndex == 0) {
+          // Horloge / Anim
+          currentScreen = SCREEN_CLOCK;
+        } else if (menuIndex == 1) {
+          // Menu WiFi — on scanne d'abord
+          u8g2.clearBuffer();
+          drawMultiLineText("Scan WiFi...", 0, 0);
+          u8g2.sendBuffer();
+          wifiNetworkCount = WiFi.scanNetworks();
+          wifiMenuIndex = 0;
+          currentScreen = SCREEN_WIFI;
+          drawWifiMenu();
+        }
+      }
+      break;
+
+    case SCREEN_WIFI:
+      if (pressedNext) {
+        wifiMenuIndex = (wifiMenuIndex + 1) % (wifiNetworkCount + 1);
+        drawWifiMenu();
+      }
+      if (pressedMenu) {
+        if (wifiMenuIndex == 0) {
+          // Flèche retour → menu principal
+          menuIndex = 0;
+          currentScreen = SCREEN_MENU;
+          drawMainMenu();
+        }
+        // (on pourrait connecter au réseau sélectionné dans une future version)
+      }
+      break;
+  }
 }
 
 // Fonction pour obtenir le bitmap correspondant à un chiffre
@@ -338,25 +451,24 @@ void drawAnimation() {
 void setup() {
   u8g2.begin();
   u8g2.setPowerSave(0);
-  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(btnNextPin, INPUT_PULLUP);
+  pinMode(btnMenuPin, INPUT_PULLUP);
   NTPstart();
-
 }
 
 void loop() {
-  // Toujours vérifier l'état du bouton
-  handleButton();
-  
-  if (AnimationOn) {
-    // Mode animation
-    drawAnimation();
-  } else {
-    // Mode horloge - mise à jour toutes les secondes
-    unsigned long currentMillis = millis();
-    if (currentMillis - lastClockUpdate >= CLOCK_UPDATE_INTERVAL) {
-      lastClockUpdate = currentMillis;
-      LocalTime();
-      drawHour(&timeinfo);
+  handleButtons();
+
+  if (currentScreen == SCREEN_CLOCK) {
+    if (AnimationOn) {
+      drawAnimation();
+    } else {
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastClockUpdate >= CLOCK_UPDATE_INTERVAL) {
+        lastClockUpdate = currentMillis;
+        LocalTime();
+        drawHour(&timeinfo);
+      }
     }
   }
 }
